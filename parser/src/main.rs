@@ -7,10 +7,12 @@ fn main() {
     let contents =
         std::fs::read_to_string(filename).expect("Something went wrong reading the file");
 
+    let newline_indices = contents.char_indices().filter_map(|(idx,c)| if c == '\n' { Some(idx) } else { None }).collect::<Vec<_>>();
+
     let parser = Parser::new(&contents).into_offset_iter();
 
     let mut heading_stack = Vec::new();
-    heading_stack.push(HeadingBuilder::new(0, 0..0));
+    heading_stack.push(HeadingBuilder::new(0, 0..0, &newline_indices));
     heading_stack.last_mut().unwrap().set_heading("file");
     let mut headings = Vec::new();
     let mut text_expectator: Option<Option<CowStr>> = None;
@@ -29,7 +31,7 @@ fn main() {
                     .last_mut()
                     .unwrap()
                     .end_own_content(range.start);
-                heading_stack.push(HeadingBuilder::new(level, range));
+                heading_stack.push(HeadingBuilder::new(level, range, &newline_indices));
                 text_expectator = Some(None);
             }
             Event::End(Tag::Heading(level)) => {
@@ -74,16 +76,24 @@ struct HeadingBuilder {
     meta: Value,
     heading_range: Range<usize>,
     content_end: Option<usize>,
+    line: usize
 }
 
 impl HeadingBuilder {
-    fn new(level: u32, heading_range: Range<usize>) -> Self {
+    fn new(level: u32, heading_range: Range<usize>, newline_indices: &[usize]) -> Self {
+        let line = if heading_range == (0..0) {
+            1
+        } else {
+            newline_indices.binary_search(&heading_range.start).unwrap_err() + 1
+        };
+
         Self {
             level,
             content_end: None,
             heading_range,
             meta: Value::Null,
             title: None,
+            line
         }
     }
 
@@ -105,7 +115,7 @@ impl HeadingBuilder {
         Heading {
             title: self.title.unwrap(),
             meta: self.meta,
-            line: 0,
+            line: self.line,
             content_end: self.content_end.unwrap_or(self.heading_range.end),
             children_content_end: end_byte,
             heading_range: self.heading_range,
